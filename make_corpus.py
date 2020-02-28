@@ -10,29 +10,24 @@ import plac
 import spacy
 from tqdm import tqdm
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
-
-from utils import dump_jsonl_file
-
 regex_ws = re.compile(r'\s+')
 
 
-def load_corpus(path, file_name):
+def load_corpus(docs):
     nlp = spacy.load('en')
     nlp.tokenizer = nlp.tokenizer.tokens_from_list
     parser = benepar.Parser('benepar_en2')
     tbwt = nltk.TreebankWordTokenizer()
     tbwd = nltk.treebank.TreebankWordDetokenizer()
     documents = {}
-    with open("{}/{}.json".format(path, file_name), 'r') as corpus_fh:
-        for raw_doc in tqdm(corpus_fh.readlines()):
-            try:
-                doc = convert_to_conll(json.loads(raw_doc), nlp, parser, tbwt, tbwd)
-                documents[doc['DocID'].strip()] = doc
-            except Exception as e:
-                print('Failed to parse document:')
-                print(e)
-                continue
+    for raw_doc in tqdm(docs):
+        try:
+            doc = convert_to_conll(raw_doc, nlp, parser, tbwt, tbwd)
+            documents[doc['DocID'].strip()] = doc
+        except Exception as e:
+            print('Failed to parse document:')
+            print(e)
+            continue
     return documents
 
 
@@ -45,7 +40,7 @@ def convert_to_conll(document, nlp, parser, tbwt, tbwd):
     doc = nlp.pipe(sentences)
     res = []
     offset = 0
-    for sent, ptree in tqdm(zip(doc, ptrees), total=len(sentences), desc='sentences', leave=False):
+    for sent, ptree in zip(doc, ptrees):
         words = []
         for tok in sent:
             token_offset = text.find(tok.text, offset)
@@ -96,31 +91,11 @@ def extract(path):
     }
 
 
-def get_data(path):
-    news_files = glob(os.path.join(path, 'bbc/*/*.txt'))
-
+def load_unlabeled_corpora(path):
+    news_files = glob(os.path.join(path, '*/*.txt'))
     with multiprocessing.Pool(multiprocessing.cpu_count()) as pool:
         news_json = pool.map(extract, news_files, chunksize=8)
-
     return news_json
-
-
-def get_sports_data(path):
-    news_files = glob(os.path.join(path, 'bbcsport/*/*.txt'))
-
-    with multiprocessing.Pool(multiprocessing.cpu_count()) as pool:
-        news_json = pool.map(extract, news_files, chunksize=8)
-
-    return news_json
-
-
-def load_unlabeled_corpora(data_path, outdir):
-    print('load BBC corpus')
-    bbc = get_data(data_path)
-    print('load BBC Sports corpus')
-    bbc_sports = get_sports_data(data_path)
-    dump_jsonl_file(bbc, os.path.join(outdir, 'bbc_corpus_featured.json'))
-    dump_jsonl_file(bbc_sports, os.path.join(outdir, 'bbcsport_corpus_featured.json'))
 
 
 def remove_textual_data(relation):
@@ -133,15 +108,9 @@ def remove_textual_data(relation):
 
 
 def main(data_path, parses_path):
-    load_unlabeled_corpora(data_path, parses_path)
-
-    docs = load_corpus(parses_path, 'bbc_corpus_featured')
-    print('save bcc corpus')
-    json.dump(docs, open("{}/{}_new.json".format(parses_path, 'bbc_corpus_featured'), 'w'))
-
-    load_corpus(parses_path, 'bbcsport_corpus_featured')
-    print('save bccsport corpus')
-    json.dump(docs, open("{}/{}_new.json".format(parses_path, 'bbcsport_corpus_featured'), 'w'))
+    docs = load_unlabeled_corpora(data_path)
+    docs = load_corpus(docs)
+    json.dump(docs, open(parses_path, 'w'))
 
 
 if __name__ == '__main__':
